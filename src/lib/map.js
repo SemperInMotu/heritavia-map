@@ -78,6 +78,11 @@ let places = [];
 let surface;
 let skirt;
 let pinMesh;
+let flatMap = null;
+let flatKey = "";
+let ohmFilters = new Map();
+let pinsBound = false;
+const baseState = { id: "relief", year: 2026 };
 const citySprites = [];
 let pinIndex = [];
 let home = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
@@ -272,6 +277,7 @@ function buildPins() {
   pinMesh.instanceMatrix.needsUpdate = true;
   if (pinMesh.instanceColor) pinMesh.instanceColor.needsUpdate = true;
   scene.add(pinMesh);
+  syncFlat();
 }
 
 function currentExag() {
@@ -438,6 +444,9 @@ function focusPlace(place) {
   const [x, y, z] = project(place.lon, place.lat, place.elev, currentExag());
   controls.target.set(x, y, z);
   camera.position.set(x + 50, y + 130, z + 190);
+  if (flatMap && baseState.id !== "relief") {
+    flatMap.flyTo({ center: [place.lon, place.lat], zoom: Math.max(flatMap.getZoom(), 11), essential: true });
+  }
 }
 
 function select(place) {
@@ -489,7 +498,249 @@ function renderCounts() {
   countsEl.textContent = bits.join(" · ");
 }
 
+const OHM_STYLE = "https://unpkg.com/@openhistoricalmap/map-styles@0.9.6/dist/historical/historical.json";
+const ROAD_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const ROAD_KEEP = /^(background|land$|water_areas$|water_areas-ne|water_lines_stream|water_lines_canal|ferry_|roads_|roadlabels_|transport_|city_labels|city_capital|country_points|state_points|statecapital)/;
+
+function loadMapLibre() {
+  if (window.maplibregl) return Promise.resolve(window.maplibregl);
+  if (loadMapLibre.pending) return loadMapLibre.pending;
+  loadMapLibre.pending = new Promise((resolve, reject) => {
+    const css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css";
+    document.head.appendChild(css);
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js";
+    script.onload = () => resolve(window.maplibregl);
+    script.onerror = () => reject(new Error("MapLibre не загрузился"));
+    document.head.appendChild(script);
+  });
+  return loadMapLibre.pending;
+}
+
+function flatStyleKey(base, year) {
+  if (base === "topo") return "topo";
+  if (base === "roads" && Number(year) >= 2020) return "roads-now";
+  if (base === "roads") return "roads-ohm";
+  return "old";
+}
+
+function styleObject(base, year) {
+  if (base === "topo") {
+    return {
+      version: 8,
+      sources: {
+        topo: {
+          type: "raster",
+          tiles: [
+            "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
+            "https://b.tile.opentopomap.org/{z}/{x}/{y}.png",
+            "https://c.tile.opentopomap.org/{z}/{x}/{y}.png",
+          ],
+          tileSize: 256,
+          maxzoom: 17,
+        },
+      },
+      layers: [{ id: "topo", type: "raster", source: "topo" }],
+    };
+  }
+  if (base === "roads" && Number(year) >= 2020) return ROAD_STYLE;
+  return OHM_STYLE;
+}
+
+function dateClause(year) {
+  const start = Number(year);
+  return ["all",
+    ["any", ["!", ["has", "start_decdate"]], ["<", ["get", "start_decdate"], start + 1]],
+    ["any", ["!", ["has", "end_decdate"]], [">=", ["get", "end_decdate"], start]],
+  ];
+}
+
+function baseNote() {
+  if (baseState.id === "topo") {
+    return "Топо: картоданные © участники OpenStreetMap, SRTM. Картопредставление © OpenTopoMap (CC-BY-SA).";
+  }
+  if (baseState.id === "roads" && baseState.year >= 2020) {
+    return "Дороги сейчас: OpenFreeMap © OpenMapTiles, данные © участники OpenStreetMap, ODbL.";
+  }
+  if (baseState.id === "roads") {
+    return "Дороги на " + baseState.year + ": OpenHistoricalMap, CC0. Объект без даты в базе остаётся на всех годах. Листы Шуберта и трёхвёрстки не подключены: нет тайлов со свободной лицензией.";
+  }
+  if (baseState.id === "old") {
+    return "Старая карта на " + baseState.year + ": OpenHistoricalMap, CC0. Где лист не внесён, пусто. Отсканированные карты империи не ставлю: у сервисов с листами нет свободной лицензии.";
+  }
+  return "Рельеф — тот же макет, вид сверху.";
+}
+
+function paintBases() {
+  document.querySelectorAll("[data-base]").forEach((button) => {
+    button.classList.toggle("on", button.dataset.base === baseState.id);
+  });
+  const yearWrap = document.getElementById("year-wrap");
+  const yearSel = document.getElementById("year");
+  const historic = baseState.id === "old" || baseState.id === "roads";
+  if (yearWrap) yearWrap.hidden = !historic;
+  const now = yearSel && yearSel.querySelector('[value="2026"]');
+  if (now) now.disabled = baseState.id === "old";
+  if (baseState.id === "old" && baseState.year >= 2020) baseState.year = 1914;
+  if (yearSel) yearSel.value = String(baseState.year);
+  const note = document.getElementById("base-note");
+  if (note) note.textContent = baseNote();
+  const exagWrap = document.getElementById("exag-wrap");
+  if (exagWrap) exagWrap.hidden = baseState.id !== "relief";
+}
+
+function pinData() {
+  return {
+    type: "FeatureCollection",
+    features: visiblePlaces().map((place) => ({
+      type: "Feature",
+      properties: { id: place.id, color: (KIND[place.kind] || KIND.other).color },
+      geometry: { type: "Point", coordinates: [place.lon, place.lat] },
+    })),
+  };
+}
+
+function addPins() {
+  const data = pinData();
+  if (flatMap.getSource("pins")) {
+    flatMap.getSource("pins").setData(data);
+    return;
+  }
+  flatMap.addSource("pins", { type: "geojson", data });
+  flatMap.addLayer({
+    id: "pins",
+    type: "circle",
+    source: "pins",
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3.4, 8, 6, 12, 9],
+      "circle-color": ["get", "color"],
+      "circle-stroke-width": 1,
+      "circle-stroke-color": "#1a140f",
+      "circle-opacity": 0.92,
+    },
+  });
+  if (!pinsBound) {
+    pinsBound = true;
+    flatMap.on("click", "pins", (event) => {
+      const id = event.features && event.features[0] && event.features[0].properties.id;
+      const place = places.find((item) => item.id === id);
+      if (place) select(place);
+    });
+    flatMap.on("mouseenter", "pins", () => { flatMap.getCanvas().style.cursor = "pointer"; });
+    flatMap.on("mouseleave", "pins", () => { flatMap.getCanvas().style.cursor = ""; });
+  }
+}
+
+function applyYear(year) {
+  const extra = dateClause(year);
+  for (const layer of flatMap.getStyle().layers) {
+    if (layer.id === "pins") continue;
+    if (!ohmFilters.has(layer.id)) ohmFilters.set(layer.id, layer.filter || null);
+    const saved = ohmFilters.get(layer.id);
+    try {
+      flatMap.setFilter(layer.id, saved ? ["all", saved, extra] : extra);
+    } catch (err) {
+      /* у фона нет фильтра */
+    }
+  }
+}
+
+function roadsOnly() {
+  for (const layer of flatMap.getStyle().layers) {
+    if (layer.id === "pins") continue;
+    try {
+      flatMap.setLayoutProperty(layer.id, "visibility", ROAD_KEEP.test(layer.id) ? "visible" : "none");
+    } catch (err) {
+      /* слой без visibility */
+    }
+  }
+}
+
+function onStyle(base, year, fresh) {
+  if (fresh) ohmFilters = new Map();
+  const historic = base === "old" || (base === "roads" && Number(year) < 2020);
+  if (historic) {
+    applyYear(Number(year));
+    if (base === "roads") roadsOnly();
+  }
+  addPins();
+}
+
+function syncFlat() {
+  if (!flatMap || baseState.id === "relief" || !flatMap.getSource("pins")) return;
+  flatMap.getSource("pins").setData(pinData());
+}
+
+function showRelief() {
+  document.getElementById("flatmap").classList.remove("on");
+  document.getElementById("view").classList.remove("flat-off");
+}
+
+async function showFlat(base, year) {
+  const maplibregl = await loadMapLibre();
+  if (baseState.id !== base) return;
+  const el = document.getElementById("flatmap");
+  el.classList.add("on");
+  document.getElementById("view").classList.add("flat-off");
+  const key = flatStyleKey(base, year);
+  if (!flatMap) {
+    flatMap = new maplibregl.Map({
+      container: el,
+      style: styleObject(base, year),
+      center: [27.95, 53.55],
+      zoom: 6,
+      maxZoom: 16,
+      maxBounds: [[19, 49], [36, 58]],
+      attributionControl: false,
+    });
+    flatMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+    flatMap.on("style.load", () => onStyle(baseState.id, baseState.year, true));
+    flatKey = key;
+  } else if (key !== flatKey) {
+    flatKey = key;
+    flatMap.setStyle(styleObject(base, year));
+  } else {
+    onStyle(base, year, false);
+  }
+  flatMap.resize();
+}
+
+function useBase(id) {
+  baseState.id = id;
+  paintBases();
+  if (id === "relief") {
+    showRelief();
+    return;
+  }
+  showFlat(id, baseState.year).catch((error) => {
+    const note = document.getElementById("base-note");
+    if (note) note.textContent = error.message || String(error);
+  });
+}
+
+function wireBases() {
+  const box = document.getElementById("bases");
+  if (!box) return;
+  box.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-base]");
+    if (!button) return;
+    useBase(button.dataset.base);
+  });
+  const yearSel = document.getElementById("year");
+  if (yearSel) {
+    yearSel.addEventListener("change", () => {
+      baseState.year = Number(yearSel.value);
+      paintBases();
+      if (baseState.id !== "relief") showFlat(baseState.id, baseState.year);
+    });
+  }
+  paintBases();
+}
+
 function wireUi() {
+  wireBases();
   const kinds = document.getElementById("kinds");
   kinds.innerHTML = KINDS.map(([id, label, color]) => {
     const n = places.filter((p) => p.kind === id).length;
@@ -523,6 +774,7 @@ function wireUi() {
     select(place);
   });
   document.getElementById("reset").onclick = () => {
+    if (flatMap && baseState.id !== "relief") flatMap.flyTo({ center: [27.95, 53.55], zoom: 6 });
     camera.position.copy(home.pos);
     controls.target.copy(home.target);
     select(null);
@@ -590,6 +842,7 @@ main().catch((error) => {
   return () => {
     disposed = true;
     cancelAnimationFrame(frameId);
+    if (flatMap) flatMap.remove();
     EventTarget.prototype.addEventListener = realAdd;
     attached.forEach(([el, type, fn, opts]) => realRemove.call(el, type, fn, opts));
     controls.dispose();

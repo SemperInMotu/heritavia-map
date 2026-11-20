@@ -26,3 +26,5 @@ map  CNAME  semperinmotu.github.io
 ## Данные
 
 `public/data/land.json` и `public/data/places.json` копируются из макета Ancestria. Описи дел Шаппо сюда не входят. Деревни и имения ревизских сказок (GeneoBY, фонды 333 и 694) уже внутри `places.json`: точка только там, где имя нашлось в своём уезде.
+
+Подложки кроме рельефа: OpenTopoMap (CC-BY-SA), OpenFreeMap (ODbL), OpenHistoricalMap (CC0). Спутник и сканы имперских листов не входят: нет свободной лицензии на тайлы.

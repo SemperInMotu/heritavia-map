@@ -19,6 +19,7 @@ export default function Page() {
   return (
     <>
       <canvas id="view" />
+      <div id="flatmap" />
       <header>
         <div>
           <p className="eyebrow">Heritavia</p>
@@ -38,8 +39,24 @@ export default function Page() {
         <div id="list" />
       </aside>
       <article id="card" hidden />
+      <div id="bases" className="bases">
+        <button type="button" data-base="relief" className="on">Рельеф</button>
+        <button type="button" data-base="topo">Топо</button>
+        <button type="button" data-base="roads">Дороги</button>
+        <button type="button" data-base="old">Старые</button>
+        <label id="year-wrap" hidden>Год
+          <select id="year" defaultValue="2026">
+            <option value="2026">сейчас</option>
+            <option value="1989">1989</option>
+            <option value="1938">1938</option>
+            <option value="1914">1914</option>
+            <option value="1863">1863</option>
+          </select>
+        </label>
+        <p id="base-note" />
+      </div>
       <div className="hud">
-        <label>
+        <label id="exag-wrap">
           Рельеф <input id="exag" type="range" min="40" max="420" defaultValue="80" />
         </label>
         <button type="button" id="reset">Весь макет</button>
