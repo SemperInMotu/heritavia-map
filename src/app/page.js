@@ -24,14 +24,15 @@ export default function Page() {
           <p className="eyebrow">Heritavia</p>
           <h1>Приходы</h1>
           <p className="lead">
-            Крутите макет. Булавка — храм или архив. В карточке — снимок, если Wikimedia лежит рядом,
-            кладбища OSM и смена губернии, уезда, повета, района, сельсовета. Слой кладбищ включается отдельно.
+            Крутите макет. Булавка — храм, архив, деревня или имение из ревизских сказок. В карточке храма — снимок,
+            если Wikimedia лежит рядом, кладбища OSM и смена губернии, уезда, повета, района, сельсовета.
+            Слой кладбищ включается отдельно. Деревни и имения в списке слева появляются по поиску.
           </p>
         </div>
         <p id="counts" className="counts" />
       </header>
       <aside id="panel">
-        <input id="q" type="search" placeholder="Храм, деревня, повет, район" autoComplete="off" />
+        <input id="q" type="search" placeholder="Храм, деревня, владелец, уезд" autoComplete="off" />
         <div id="kinds" className="kinds" />
         <p id="list-meta" className="meta" />
         <div id="list" />
@@ -48,6 +49,7 @@ export default function Page() {
         Сельсовет на 2019 год — справочник населённых пунктов. Волость и гмина в этих списках не размечены.
         Фото — <a href="https://commons.wikimedia.org/" target="_blank" rel="noreferrer">Wikimedia Commons</a>, лицензия у файла.
         Кладбища — © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">участники OpenStreetMap</a>, ODbL.
+        Деревни, имения и владельцы — индекс ревизских сказок GeneoBY, фонды НИАБ 333 и 694. Точка стоит на одноимённом пункте, это не межа.
         Граница — geoBoundaries. Рельеф — Mapzen Terrain Tiles.
       </footer>
       <div id="loading">Собираю макет…</div>

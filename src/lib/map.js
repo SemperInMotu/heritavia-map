@@ -24,8 +24,13 @@ const KINDS = [
   ["muslim", "Мечеть", "#1f7a4d"],
   ["other", "Иное", "#8a8178"],
   ["cemetery", "Кладбище", "#8a8175"],
+  ["revision", "Деревня РС", "#7d9a72"],
+  ["estate", "Имение", "#e0b15a"],
   ["archive", "Архив", "#c6a15b"],
 ];
+
+const PARISH = new Set(["orthodox", "catholic", "attached", "old", "jewish", "protestant", "muslim", "other"]);
+const MAP_ONLY = new Set(["cemetery", "revision", "estate"]);
 
 const KIND = Object.fromEntries(KINDS.map(([id, label, color]) => [id, { label, color }]));
 
@@ -216,7 +221,8 @@ function visiblePlaces() {
   return places.filter((p) => {
     if (!state.kinds.has(p.kind)) return false;
     if (!q) return true;
-    const blob = [p.name, p.place, p.settlement, p.selsoviet, p.faithLabel, p.near && p.near.name, ...(p.admin || []), JSON.stringify(p.timeline || [])].join(" ").toLowerCase();
+    const people = [...(p.owners || []).map((o) => o.name), ...(p.imenie || []).map((o) => o.name), ...(p.holding || []), ...(p.volost || []), ...(p.ciphers || [])];
+    const blob = [p.name, p.place, p.settlement, p.selsoviet, p.faithLabel, p.near && p.near.name, ...people, ...(p.admin || []), JSON.stringify(p.timeline || [])].join(" ").toLowerCase();
     return blob.includes(q);
   });
 }
@@ -224,14 +230,16 @@ function visiblePlaces() {
 function pinScale(place) {
   if (place.kind === "archive") return 3.2;
   if (place.kind === "cemetery") return 0.62;
+  if (place.kind === "estate") return 1.15;
+  if (place.kind === "revision") return 0.85;
   return 1.5;
 }
 
 function listPlaces() {
   const shown = visiblePlaces();
   const q = state.q.trim();
-  const othersOn = [...state.kinds].some((id) => id !== "cemetery");
-  if (!q && othersOn) return shown.filter((p) => p.kind !== "cemetery");
+  const othersOn = [...state.kinds].some((id) => !MAP_ONLY.has(id));
+  if (!q && othersOn) return shown.filter((p) => !MAP_ONLY.has(p.kind));
   return shown;
 }
 
@@ -332,7 +340,7 @@ function radzima(id) {
 function photoBlock(place) {
   const photo = place.photo;
   if (!photo) {
-    if (place.kind === "archive" || place.kind === "cemetery") return "";
+    if (!PARISH.has(place.kind)) return "";
     return `<p class="miss">Снимка Wikimedia, который можно честно поставить на этот приход, нет.</p>`;
   }
   const credit = [photo.license || "лицензия на странице файла", photo.author].filter(Boolean).join(", ");
@@ -343,11 +351,36 @@ function photoBlock(place) {
 }
 
 function cemeteryBlock(place) {
-  if (place.kind === "cemetery" || place.kind === "archive") return "";
+  if (!PARISH.has(place.kind)) return "";
   const rows = place.cemeteries || [];
   if (!rows.length) return `<p class="miss">Кладбищ OpenStreetMap ближе 2 км нет.</p>`;
   const buttons = rows.map((row) => `<button type="button" data-jump="${esc(row.id)}">${esc(row.name)} · ${row.m} м</button>`).join("");
   return `<div class="near"><b>Кладбища рядом</b><small>OpenStreetMap, по прямой от прихода. Близость не значит, что кладбище приходское.</small>${buttons}</div>`;
+}
+
+function revisionBlock(place) {
+  if (place.kind !== "estate" && place.kind !== "revision") return "";
+  const span = (place.years || []).join("–");
+  const owners = (place.owners || []).map((row) => {
+    const years = (row.years || []).join(", ");
+    return `<li>${esc(row.name)}${years ? ` <small>${esc(years)}</small>` : ""}</li>`;
+  }).join("");
+  const imenie = (place.imenie || []).map((row) => {
+    const years = (row.years || []).join(", ");
+    return `<li>${esc(row.name)}${years ? ` <small>${esc(years)}</small>` : ""}</li>`;
+  }).join("");
+  const holding = (place.holding || []).join(" · ");
+  const volost = (place.volost || []).join(" · ");
+  const ciphers = (place.ciphers || []).join(" · ");
+  return `<div class="near">
+    <b>Ревизские сказки</b>
+    <small>${esc(place.geoNote || "")}. Записей в индексе: ${place.records || 0}${span ? `, ${esc(span)}` : ""}. Это не межа имения.</small>
+    ${volost ? `<p>Волость: ${esc(volost)}</p>` : ""}
+    ${holding ? `<p>Владение: ${esc(holding)}</p>` : ""}
+    ${imenie ? `<b>Имение</b><ul>${imenie}</ul>` : ""}
+    ${owners ? `<b>Владельцы</b><ul>${owners}</ul>` : "<p>Владелец в индексе не указан.</p>"}
+    ${ciphers ? `<p>Шифр: ${esc(ciphers)}</p>` : ""}
+  </div>`;
 }
 
 function renderCard(place) {
@@ -359,7 +392,7 @@ function renderCard(place) {
   const kind = KIND[place.kind] || KIND.other;
   const where = [place.settlement, place.place].filter(Boolean).join(" ");
   const links = [];
-  if (place.kind !== "archive" && place.kind !== "cemetery") {
+  if (PARISH.has(place.kind)) {
     links.push(`<a href="https://shappoff.github.io/prikhody/p/${encodeURIComponent(place.id)}" target="_blank" rel="noreferrer">Приход у Шаппо</a>`);
     const rad = radzima(place.id);
     if (rad) links.push(`<a href="${rad}" target="_blank" rel="noreferrer">radzima.net</a>`);
@@ -385,6 +418,7 @@ function renderCard(place) {
     <p>${esc(where)}</p>
     ${place.kind === "archive" ? "<p>Архив, куда заказывают дела. Это не приход.</p>" : ""}
     ${place.kind === "cemetery" ? "<p>Координата OpenStreetMap. Это не приход и не опись захоронений.</p>" : ""}
+    ${revisionBlock(place)}
     ${photoBlock(place)}
     ${timeline ? `<div class="tl">${timeline}</div>` : ""}
     ${cemeteryBlock(place)}
@@ -434,6 +468,10 @@ function renderList() {
     let extra = p.selsoviet || "сельсовет не сопоставлен";
     if (p.kind === "archive") extra = "архив";
     else if (p.kind === "cemetery") extra = p.near ? `до прихода ${p.near.m} м` : "OSM";
+    else if (p.kind === "estate" || p.kind === "revision") {
+      const owner = p.owners && p.owners[0] ? p.owners[0].name : "";
+      extra = [p.settlement, owner].filter(Boolean).join(" · ") || "ревизская сказка";
+    }
     else if (p.photo) extra += " · снимок";
     return `<button class="row${p.id === state.selected ? " active" : ""}" data-id="${esc(p.id)}">
       <i class="swatch" style="background:${color}"></i>

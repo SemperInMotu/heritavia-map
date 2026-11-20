@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "Приходы — Heritavia",
-  description: "3D-макет храмов, приходов и кладбищ Беларуси",
+  description: "3D-макет храмов, приходов, кладбищ и ревизских сказок Беларуси",
 };
 
 export default function RootLayout({ children }) {
